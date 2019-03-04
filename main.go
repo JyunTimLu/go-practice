@@ -1,26 +1,51 @@
 package main
 
 import (
+	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 
-	"database/sql"
-
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
-	_ "github.com/lib/pq"
 )
 
 // 404 not found
 func notFoundHandler(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusNotFound)
-	io.WriteString(w, "Not Found")
+	io.WriteString(w, "404 Not Found")
 }
 
 //article handler
 func articleHandler(w http.ResponseWriter, req *http.Request) {
+
+	db, err := sql.Open("mysql", "tim:102030@tcp(localhost:8889)/go")
+
+	rows, err := db.Query("SELECT * FROM users")
+
+	if err != nil {
+		panic(err)
+	}
+
+	for rows.Next() {
+		var autoID string
+		var account string
+		var pwd string
+		var email string
+
+		if err := rows.Scan(&autoID, &account, &pwd, &email); err != nil {
+			panic(err)
+		}
+
+		io.WriteString(w, account)
+	}
+	if err := rows.Err(); err != nil {
+		panic(err)
+	}
+
 	vars := mux.Vars(req)
 	//get url path param
 	articleName := vars["name"]
@@ -81,40 +106,38 @@ func middleWare(next http.Handler) http.Handler {
 	})
 }
 
-func db() {
+func sendToSlack(w http.ResponseWriter, req *http.Request) {
 
-	//init db
-	db, err := sql.Open("postgres", "user=tim password=a dbname=test sslmode=disable")
-	defer db.Close()
-	panic(err)
+	deviceToken := req.URL.Query().Get("deviceToken")
+	url := "https://hooks.slack.com/services/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"
+	fmt.Println("URL:>", url)
+	io.WriteString(w, deviceToken)
+	s := `{"text":"` + deviceToken + `"}`
+	var jsonStr = []byte(s)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonStr))
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	client := &http.Client{}
+	client.Do(req)
 
-	//insert
-	stmt, err := db.Prepare("INSERT INTO my(use,pw) VALUES($1,$2);")
-	// panicErr(err)
-	stmt.Exec("apple", "iphone")
-	// panicErr(err)
-	fmt.Println("insert data")
-
-	//query
-	rows, err := db.Query("SELECT * FROM my")
-	// panicErr(err)
-	var use, pw string
-	for rows.Next() {
-		// panicErr(err)
-		fmt.Println("\t", use, pw)
+	if err != nil {
+		panic(err)
 	}
 
+	/*resp, err := client.Do(www)
+	    if err != nil {
+	        panic(err)
+		}
+	    defer resp.Body.Close()
+	*/
 }
 
 func main() {
 
-	// db()
-
 	r := mux.NewRouter()
 	r.NotFoundHandler = http.HandlerFunc(notFoundHandler)
-	//get path param
+	// //get path param
 	r.HandleFunc("/article/{name}", articleHandler)
-
+	r.HandleFunc("/sendToSlack", sendToSlack)
 	r.HandleFunc("/json", jsonHandler).Methods(http.MethodPost)
 
 	http.ListenAndServe(":8080", middleWare(r))
